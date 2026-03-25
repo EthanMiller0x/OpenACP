@@ -39,7 +39,7 @@ export class SlackChannelManager implements ISlackChannelManager {
           });
         }
 
-        return { channelId, channelSlug: finalSlug };
+        return { sessionId, channelId, channelSlug: finalSlug };
       } catch (err: any) {
         if (err?.data?.error === "name_taken" && attempt < 2) {
           lastError = err;

@@ -113,7 +113,7 @@ describe("SlackEventRouter", () => {
   it("routes to onIncoming when sessionLookup returns a match", async () => {
     const onIncoming = vi.fn();
     const onNewSession = vi.fn();
-    const sessionLookup = vi.fn().mockReturnValue({ channelId: "C123", channelSlug: "openacp-session-abc1" });
+    const sessionLookup = vi.fn().mockReturnValue({ sessionId: "sess-abc1", channelId: "C123", channelSlug: "openacp-session-abc1" });
     const router = new SlackEventRouter(sessionLookup, onIncoming, "BOT1", "NOTIF", onNewSession, makeConfig());
     const app = createMockApp();
     router.register(app as any);
@@ -127,7 +127,7 @@ describe("SlackEventRouter", () => {
   it("routes file_share messages with audio clips", async () => {
     const onIncoming = vi.fn();
     const onNewSession = vi.fn();
-    const sessionLookup = vi.fn().mockReturnValue({ channelId: "C123", channelSlug: "openacp-session-abc1" });
+    const sessionLookup = vi.fn().mockReturnValue({ sessionId: "sess-abc1", channelId: "C123", channelSlug: "openacp-session-abc1" });
     const router = new SlackEventRouter(sessionLookup, onIncoming, "BOT1", "NOTIF", onNewSession, makeConfig());
     const app = createMockApp();
     router.register(app as any);
@@ -155,7 +155,7 @@ describe("SlackEventRouter", () => {
   it("still blocks edited/deleted subtypes", async () => {
     const onIncoming = vi.fn();
     const onNewSession = vi.fn();
-    const sessionLookup = vi.fn().mockReturnValue({ channelId: "C123", channelSlug: "openacp-session-abc1" });
+    const sessionLookup = vi.fn().mockReturnValue({ sessionId: "sess-abc1", channelId: "C123", channelSlug: "openacp-session-abc1" });
     const router = new SlackEventRouter(sessionLookup, onIncoming, "BOT1", "NOTIF", onNewSession, makeConfig());
     const app = createMockApp();
     router.register(app as any);
