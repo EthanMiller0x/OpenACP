@@ -1818,19 +1818,18 @@ export async function cmdOnboard(args: string[] = []): Promise<void> {
 
   if (subcommand === 'slack') {
     if (args.includes('--upgrade-scopes')) {
-      const { upgradeSlackScopes } = await import('../core/setup.js')
+      const { upgradeSlackScopes } = await import('../core/setup/index.js')
       await upgradeSlackScopes(cm)
       return
     }
     // Direct Slack setup
     await cm.load().catch(() => {})
     const existing = cm.get()?.channels?.slack
-    const { setupSlack } = await import('../core/setup.js')
-    const result = await setupSlack(1, 1, existing)
+    const { setupSlack } = await import('../core/setup/index.js')
+    const result = await setupSlack({ existing })
     // Merge into config
     const config = cm.get()
     const channels = { ...config.channels, slack: result.slackConfig }
-    // Handle speech config merge
     const speech = { ...config.speech }
     if (result.speechConfig.stt) {
       speech.stt = { provider: result.speechConfig.stt.provider, providers: { [result.speechConfig.stt.provider]: { apiKey: result.speechConfig.stt.apiKey } } }
@@ -1842,8 +1841,13 @@ export async function cmdOnboard(args: string[] = []): Promise<void> {
     return
   }
 
-  const { runSetup } = await import('../core/setup.js')
-  await runSetup(cm, { skipRunMode: true })
+  if (await cm.exists()) {
+    const { runReconfigure } = await import('../core/setup/index.js')
+    await runReconfigure(cm)
+  } else {
+    const { runSetup } = await import('../core/setup/index.js')
+    await runSetup(cm, { skipRunMode: true })
+  }
 }
 
 export async function cmdDefault(command: string | undefined): Promise<void> {
@@ -1870,7 +1874,7 @@ export async function cmdDefault(command: string | undefined): Promise<void> {
 
   // If no config, run setup first
   if (!(await cm.exists())) {
-    const { runSetup } = await import('../core/setup.js')
+    const { runSetup } = await import('../core/setup/index.js')
     const shouldStart = await runSetup(cm)
     if (!shouldStart) process.exit(0)
   }
