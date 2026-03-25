@@ -1815,10 +1815,9 @@ export async function cmdOnboard(args: string[] = []): Promise<void> {
   const cm = new ConfigManager()
 
   const subcommand = args[1]        // e.g. "slack" (args[0] is "onboard")
-  const flag = args[2]              // e.g. "--upgrade-scopes"
 
   if (subcommand === 'slack') {
-    if (flag === '--upgrade-scopes') {
+    if (args.includes('--upgrade-scopes')) {
       const { upgradeSlackScopes } = await import('../core/setup.js')
       await upgradeSlackScopes(cm)
       return
