@@ -152,14 +152,22 @@ The manifest is versioned (e.g. `v1`, `v2`) so the wizard can detect when an upg
 
 `generateSlackManifest()` returns a JSON object. The manifest is versioned; future scope additions increment the version.
 
-### v1 — Core manifest
-
 Note: `connections:write` is an **app-level token scope** required for Socket Mode. It cannot be declared in the manifest's `oauth_config` block — it is provisioned when the user creates an App-Level Token in the Slack dashboard after installing the app. The manifest's `socket_mode_enabled: true` triggers Slack to prompt for this automatically. No additional manifest entry is needed.
+
+### v1 — Initial (deprecated, do not use)
+
+v1 was missing three required fields discovered during live testing:
+- `commands` bot scope — required by Slack when `slash_commands` is declared; without it the manifest is rejected with "Slash Commands requires `commands` bot scope"
+- `message.im` event — required to receive DMs to the bot
+- `app_home.messages_tab_enabled` — required to allow users to DM the bot; without it the Messages tab shows "Sending messages to this app has been turned off"
+
+### v2 — Current manifest
 
 ```json
 {
   "display_information": { "name": "OpenACP" },
   "features": {
+    "app_home": { "messages_tab_enabled": true, "messages_tab_read_only_enabled": false },
     "bot_user": { "display_name": "OpenACP", "always_online": true },
     "slash_commands": [
       {
@@ -174,14 +182,16 @@ Note: `connections:write` is an **app-level token scope** required for Socket Mo
       "bot": [
         "channels:manage", "channels:history", "channels:join", "channels:read",
         "chat:write", "chat:write.public",
+        "commands",
         "groups:write", "groups:history", "groups:read",
-        "files:read", "files:write"
+        "files:read", "files:write", 
+        "im:history"
       ]
     }
   },
   "settings": {
     "event_subscriptions": {
-      "bot_events": ["message.channels", "message.groups"]
+      "bot_events": ["message.channels", "message.groups", "message.im"]
     },
     "interactivity": { "is_enabled": true },
     "socket_mode_enabled": true,
@@ -219,6 +229,21 @@ Which messaging platform do you want to use?
 | Ctrl+C during --upgrade-scopes | Exit without saving new token — existing config preserved |
 | No existing Slack config when running --upgrade-scopes | Print "No Slack config found. Run `openacp onboard slack` first." and exit |
 
+## DM Handling (discovered during testing)
+
+When a user DMs the OpenACP bot directly:
+
+1. `SlackEventRouter` detects `channelId.startsWith("D")` (Slack DM channel format) and calls `onNewSession(text, userId, fromChannelId)`
+2. The adapter's `onNewSession` callback:
+   - Creates a new session via `core.handleNewSession(..., { createThread: true })`
+   - Calls `conversations.invite` to invite the triggering `userId` to the new private channel
+   - Replies in the originating DM with a link: "✅ New session started! Continue the conversation in #channel"
+   - Routes the initial message text to the new session
+
+The same `onNewSession` flow applies when a user messages `#openacp-notifications`.
+
+**Important:** `conversations.invite` must be called explicitly for the triggering user. `channel-manager.ts` only auto-invites users listed in `config.allowedUserIds` — when `allowedUserIds` is empty (allow all), no one is invited automatically.
+
 ## Out of Scope
 
 - Multi-workspace support
@@ -230,3 +255,5 @@ Which messaging platform do you want to use?
 
 - **Voice support (STT/TTS)** is in scope via Step 3.5. The core manifest already includes `files:read` and `files:write` — no reinstall needed for voice. STT requires a Groq API key; TTS uses Edge TTS (free, no key).
 - **Slash commands in manifest**: Only `/openacp-archive` is implemented in code. Other commands listed in `docs/slack-setup.md` (`/new`, `/cancel`, etc.) appear to be planned/undocumented and are not added to the manifest until implemented.
+- **Manifest must declare `commands` scope** when `slash_commands` is present — Slack rejects the manifest otherwise. This is not documented clearly in Slack's manifest reference.
+- **`app_home.messages_tab_enabled: true` is required** for DMs to work — without it the Messages tab is disabled for users and cannot be fixed at runtime.

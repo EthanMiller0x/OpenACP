@@ -522,6 +522,7 @@ export interface SlackManifest {
   manifest: {
     display_information: { name: string };
     features: {
+      app_home: { messages_tab_enabled: boolean; messages_tab_read_only_enabled: boolean };
       bot_user: { display_name: string; always_online: boolean };
       slash_commands: Array<{ command: string; description: string; should_escape: boolean }>;
     };
@@ -537,10 +538,11 @@ export interface SlackManifest {
 
 export function generateSlackManifest(): SlackManifest {
   return {
-    version: 1,
+    version: 2,
     manifest: {
       display_information: { name: "OpenACP" },
       features: {
+        app_home: { messages_tab_enabled: true, messages_tab_read_only_enabled: false },
         bot_user: { display_name: "OpenACP", always_online: true },
         slash_commands: [
           {
@@ -555,13 +557,15 @@ export function generateSlackManifest(): SlackManifest {
           bot: [
             "channels:manage", "channels:history", "channels:join", "channels:read",
             "chat:write", "chat:write.public",
+            "commands",
             "groups:write", "groups:history", "groups:read",
             "files:read", "files:write",
+            "im:history"
           ],
         },
       },
       settings: {
-        event_subscriptions: { bot_events: ["message.channels", "message.groups"] },
+        event_subscriptions: { bot_events: ["message.channels", "message.groups", "message.im"] },
         interactivity: { is_enabled: true },
         socket_mode_enabled: true,
         token_rotation_enabled: false,

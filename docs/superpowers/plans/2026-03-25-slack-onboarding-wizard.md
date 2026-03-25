@@ -917,3 +917,45 @@ Expected: Clean build, all tests pass
 git add -A
 git commit -m "fix(slack): resolve any integration issues from onboarding wizard"
 ```
+
+---
+
+## Bug Fixes Found During Live Testing (2026-03-25)
+
+These bugs were discovered while testing the onboarding wizard end-to-end against a real Slack workspace. All fixes are in the `develop` branch.
+
+### Bug 1: Manifest rejected — missing `commands` scope
+**File:** `src/core/setup.ts` → `generateSlackManifest()`
+**Symptom:** Slack manifest editor shows "Slash Commands requires `commands` bot scope" and blocks app creation.
+**Root cause:** Slack requires the `commands` bot scope whenever `slash_commands` is declared in the manifest. This is not documented in Slack's manifest reference.
+**Fix:** Added `"commands"` to `oauth_config.scopes.bot`.
+
+### Bug 2: DMs not received — missing `message.im` event
+**File:** `src/core/setup.ts` → `generateSlackManifest()`
+**Symptom:** Bot receives messages in channels but never receives DMs.
+**Root cause:** `message.im` was missing from `bot_events`. Without it, Slack does not deliver DM events.
+**Fix:** Added `"message.im"` to `settings.event_subscriptions.bot_events`. Manifest bumped to v2.
+
+### Bug 3: DM tab disabled — missing `app_home.messages_tab_enabled`
+**File:** `src/core/setup.ts` → `generateSlackManifest()`
+**Symptom:** Messages tab in App Home shows "Sending messages to this app has been turned off." Required manual toggle in api.slack.com → App Home → Show Tabs.
+**Root cause:** `features.app_home.messages_tab_enabled` was missing from the manifest.
+**Fix:** Added `"app_home": { "messages_tab_enabled": true, "messages_tab_read_only_enabled": false }` to `features`.
+
+### Bug 4: `onNewSession` posted help message instead of creating session
+**File:** `src/adapters/slack/adapter.ts`
+**Symptom:** Messaging `#openacp-notifications` or DMing the bot shows: "To start a new session, use the `/openacp-new` slash command" — but `/openacp-new` does not exist.
+**Root cause:** The `onNewSession` callback was a placeholder that only posted a help message.
+**Fix:** Replaced with real session creation: calls `core.handleNewSession()`, invites the triggering user, replies with a link to the new channel, and routes the initial message text.
+
+### Bug 5: DM messages silently dropped by event router
+**File:** `src/adapters/slack/event-router.ts`
+**Symptom:** Sending a DM to the bot has no effect — no session created, no reply.
+**Root cause:** The event router only handled messages to existing session channels or `notificationChannelId`. DM channels (IDs starting with `D`) fell through with no action.
+**Fix:** Added DM detection — `if (channelId.startsWith("D")) { this.onNewSession(text, userId, channelId); }`. Also updated `NewSessionCallback` type to include `fromChannelId: string` so the callback knows where to reply.
+
+### Bug 6: User not invited to private session channel
+**File:** `src/adapters/slack/adapter.ts`
+**Symptom:** Bot replies "✅ New session started! Continue the conversation in #channel" but clicking the link shows "You don't have access to this channel".
+**Root cause:** `SlackChannelManager.createChannel()` only invites users from `config.allowedUserIds`. When `allowedUserIds: []` (allow all), nobody is invited.
+**Fix:** In the `onNewSession` callback, explicitly call `conversations.invite` with the triggering `userId` after the channel is created.

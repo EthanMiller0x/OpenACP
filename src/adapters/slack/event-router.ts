@@ -27,8 +27,8 @@ export type SessionLookup = (channelId: string) => SlackSessionMeta | undefined;
 // Callback to dispatch an incoming message to core
 export type IncomingMessageCallback = (sessionId: string, text: string, userId: string, files?: SlackFileInfo[]) => void;
 
-// Callback to create a new session when user messages the notification channel
-export type NewSessionCallback = (text: string, userId: string) => void;
+// Callback to create a new session when user messages the notification channel or via DM
+export type NewSessionCallback = (text: string, userId: string, fromChannelId: string) => void;
 
 export interface ISlackEventRouter {
   register(app: App): void;
@@ -97,7 +97,13 @@ export class SlackEventRouter implements ISlackEventRouter {
 
       // Message to the notification channel → create new session
       if (this.notificationChannelId && channelId === this.notificationChannelId) {
-        this.onNewSession(text, userId);
+        this.onNewSession(text, userId, channelId);
+        return;
+      }
+
+      // DM to the bot (channel ID starts with 'D') → create new session
+      if (channelId.startsWith("D")) {
+        this.onNewSession(text, userId, channelId);
         return;
       }
     });
