@@ -79,6 +79,23 @@ Step 3: Optional config
     → parse into string[] — empty input = []
   → Prompt: "Channel prefix:" initialValue="openacp"
 
+Step 3.5: Voice setup (optional)
+  → Prompt: "Do you want to enable voice support? (Speech-to-Text / Text-to-Speech)"
+    → If No: skip
+    → If Yes:
+      STT setup:
+        → Prompt: "Groq API key for Speech-to-Text (get free key at console.groq.com, or Enter to skip):"
+        → If provided: write to config speech.stt.provider="groq" + speech.stt.providers.groq.apiKey
+        → Note: files:read is already in the app manifest — no reinstall needed
+
+      TTS setup:
+        → Prompt: "Enable Text-to-Speech (Edge TTS, free, no API key needed)? [Y/n]"
+        → If Yes: write to config speech.tts.provider="edge-tts"
+        → Prompt: "Voice (Enter for default en-US-AriaNeural):"
+          → Show examples: en-US-GuyNeural, vi-VN-HoaiMyNeural, ja-JP-NanamiNeural
+        → If provided: write to config speech.tts.providers.edge-tts.voice
+        → Note: files:write is already in the app manifest — no reinstall needed
+
 Step 4: Auto-create notification channel
   → Spinner: "Creating #openacp-notifications..."
   → Call conversations.create({ name: "openacp-notifications", is_private: true })
@@ -206,6 +223,10 @@ Which messaging platform do you want to use?
 
 - Multi-workspace support
 - Auto-detecting an existing Slack app to reuse
-- Voice/STT/TTS: no new bot scopes needed — configured separately via `openacp config`
-- `/openacp-new` slash command (not yet implemented)
+- `/openacp-new` slash command (not yet implemented — mentioned in slack-setup.md docs but not in codebase)
 - Inviting the human operator to `#openacp-notifications` via API (requires their Slack User ID — user joins manually instead)
+
+## Notes
+
+- **Voice support (STT/TTS)** is in scope via Step 3.5. The core manifest already includes `files:read` and `files:write` — no reinstall needed for voice. STT requires a Groq API key; TTS uses Edge TTS (free, no key).
+- **Slash commands in manifest**: Only `/openacp-archive` is implemented in code. Other commands listed in `docs/slack-setup.md` (`/new`, `/cancel`, etc.) appear to be planned/undocumented and are not added to the manifest until implemented.
