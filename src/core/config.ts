@@ -91,6 +91,7 @@ const SpeechProviderSchema = z
   .object({
     apiKey: z.string().min(1).optional(),
     model: z.string().optional(),
+    voice: z.string().optional(),
   })
   .passthrough();
 
