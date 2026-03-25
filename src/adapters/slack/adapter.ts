@@ -22,6 +22,7 @@ import { SlackFormatter } from "./formatter.js";
 import { SlackChannelManager } from "./channel-manager.js";
 import { SlackPermissionHandler } from "./permission-handler.js";
 import { SlackEventRouter } from "./event-router.js";
+import { SlackArchiveHandler } from "./archive-handler.js";
 import { SlackTextBuffer } from "./text-buffer.js";
 import { toSlug } from "./slug.js";
 import { isAudioClip } from "./utils.js";
@@ -34,6 +35,7 @@ export class SlackAdapter extends ChannelAdapter<OpenACPCore> {
   private channelManager!: SlackChannelManager;
   private permissionHandler!: SlackPermissionHandler;
   private eventRouter!: SlackEventRouter;
+  private archiveHandler!: SlackArchiveHandler;
   private sessions = new Map<string, SlackSessionMeta>();
   private textBuffers = new Map<string, SlackTextBuffer>();
   private botUserId = "";
@@ -90,6 +92,30 @@ export class SlackAdapter extends ChannelAdapter<OpenACPCore> {
       },
     );
     this.permissionHandler.register(this.app);
+
+    // Archive handler — /openacp-archive slash command + buttons
+    this.archiveHandler = new SlackArchiveHandler(
+      (slackChannelId) => {
+        for (const meta of this.sessions.values()) {
+          if (meta.channelId === slackChannelId) return meta;
+        }
+        return undefined;
+      },
+      async (sessionId) => {
+        const result = await this.core.archiveSession(sessionId);
+        return result.ok
+          ? { ok: true, newThreadId: result.newThreadId }
+          : { ok: false, error: result.error };
+      },
+      (userId) => {
+        const slackAllowed = this.slackConfig.allowedUserIds ?? [];
+        const globalAllowed = this.core.configManager.get().security.allowedUserIds;
+        const allowed = slackAllowed.length > 0 ? slackAllowed : globalAllowed;
+        if (allowed.length === 0) return true;
+        return allowed.includes(userId);
+      },
+    );
+    this.archiveHandler.register(this.app);
 
     // Event router — dispatch incoming messages from session channels to core
     this.eventRouter = new SlackEventRouter(
