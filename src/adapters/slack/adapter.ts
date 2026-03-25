@@ -337,6 +337,74 @@ export class SlackAdapter extends ChannelAdapter<OpenACPCore> {
     if (buf) { buf.destroy(); this.textBuffers.delete(sessionId); }
   }
 
+  async archiveSessionTopic(sessionId: string): Promise<{ newThreadId: string } | null> {
+    const session = this.core.sessionManager.getSession(sessionId);
+    if (!session) return null;
+    if (session.archiving) return null;
+
+    const meta = this.sessions.get(sessionId);
+    if (!meta) return null;
+
+    const rawName = (session.name || `Session ${session.id.slice(0, 6)}`).replace(/^🔄\s*/, "");
+
+    // 1. Block outgoing messages
+    session.archiving = true;
+
+    // 2. Flush pending text buffer
+    const buf = this.textBuffers.get(sessionId);
+    if (buf) {
+      try { await buf.flush(); } catch { /* best effort */ }
+      buf.destroy();
+      this.textBuffers.delete(sessionId);
+    }
+
+    // 3. Cleanup permission buttons for old channel
+    try {
+      await this.permissionHandler.cleanupSession(meta.channelId);
+    } catch (err) {
+      log.warn({ err, sessionId }, "Failed to cleanup permissions during archive");
+    }
+
+    // 4. Archive old channel
+    try {
+      await this.channelManager.archiveChannel(meta.channelId);
+    } catch (err) {
+      log.warn({ err, sessionId }, "Failed to archive old channel");
+    }
+
+    // 5. Create new channel
+    let newMeta: SlackSessionMeta;
+    try {
+      newMeta = await this.channelManager.createChannel(sessionId, `🔄 ${rawName}`);
+    } catch (createErr) {
+      session.archiving = false;
+      this.core.notificationManager.notifyAll({
+        sessionId: session.id,
+        sessionName: session.name,
+        type: "error",
+        summary: `Channel recreation failed for session "${rawName}". Session is orphaned. Error: ${(createErr as Error).message}`,
+      });
+      throw createErr;
+    }
+
+    // 6. Rewire session to new channel
+    session.threadId = newMeta.channelSlug;
+    this.sessions.set(sessionId, newMeta);
+
+    // 7. Persist new topicId
+    const existingRecord = this.core.sessionManager.getSessionRecord(sessionId);
+    const existingPlatform = { ...(existingRecord?.platform ?? {}) };
+    await this.core.sessionManager.patchRecord(sessionId, {
+      platform: { ...existingPlatform, topicId: newMeta.channelSlug },
+    });
+
+    // 8. Clear archiving flag
+    session.archiving = false;
+
+    log.info({ sessionId, oldChannelId: meta.channelId, newChannelId: newMeta.channelId }, "Session channel archived and recreated");
+    return { newThreadId: newMeta.channelSlug };
+  }
+
   private getTextBuffer(sessionId: string, channelId: string): SlackTextBuffer {
     let buf = this.textBuffers.get(sessionId);
     if (!buf) {
@@ -347,6 +415,8 @@ export class SlackAdapter extends ChannelAdapter<OpenACPCore> {
   }
 
   async sendMessage(sessionId: string, content: OutgoingMessage): Promise<void> {
+    const session = this.core.sessionManager.getSession(sessionId);
+    if (session?.archiving) return;
     const meta = this.sessions.get(sessionId);
     if (!meta) {
       log.warn({ sessionId }, "No Slack channel for session, skipping message");
