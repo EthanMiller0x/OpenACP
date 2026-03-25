@@ -513,6 +513,80 @@ export async function setupDiscord(): Promise<DiscordChannelConfig> {
   };
 }
 
+// --- Slack manifest ---
+
+export interface SlackManifest {
+  version: number;
+  manifest: {
+    display_information: { name: string };
+    features: {
+      bot_user: { display_name: string; always_online: boolean };
+      slash_commands: Array<{ command: string; description: string; should_escape: boolean }>;
+    };
+    oauth_config: { scopes: { bot: string[] } };
+    settings: {
+      event_subscriptions: { bot_events: string[] };
+      interactivity: { is_enabled: boolean };
+      socket_mode_enabled: boolean;
+      token_rotation_enabled: boolean;
+    };
+  };
+}
+
+export function generateSlackManifest(): SlackManifest {
+  return {
+    version: 1,
+    manifest: {
+      display_information: { name: "OpenACP" },
+      features: {
+        bot_user: { display_name: "OpenACP", always_online: true },
+        slash_commands: [
+          {
+            command: "/openacp-archive",
+            description: "Archive current session channel and start fresh",
+            should_escape: false,
+          },
+        ],
+      },
+      oauth_config: {
+        scopes: {
+          bot: [
+            "channels:manage", "channels:history", "channels:join", "channels:read",
+            "chat:write", "chat:write.public",
+            "groups:write", "groups:history", "groups:read",
+            "files:read", "files:write",
+          ],
+        },
+      },
+      settings: {
+        event_subscriptions: { bot_events: ["message.channels", "message.groups"] },
+        interactivity: { is_enabled: true },
+        socket_mode_enabled: true,
+        token_rotation_enabled: false,
+      },
+    },
+  };
+}
+
+export async function validateSlackBotToken(
+  token: string,
+): Promise<{ ok: true; botUsername: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch("https://slack.com/api/auth.test", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
+    const data = (await res.json()) as { ok: boolean; user?: string; error?: string };
+    if (data.ok && data.user) return { ok: true, botUsername: data.user };
+    return { ok: false, error: data.error || "Invalid token" };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
 export async function setupAgents(): Promise<{
   defaultAgent: string;
 }> {
