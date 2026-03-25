@@ -50,7 +50,7 @@ const commands: Record<string, () => Promise<void>> = {
   'doctor': () => cmdDoctor(args),
   'agents': () => cmdAgents(args),
   'tunnel': () => cmdTunnel(args),
-  'onboard': () => cmdOnboard(),
+  'onboard': () => cmdOnboard(args),
   '--daemon-child': async () => {
     const { startServer } = await import('./main.js')
     await startServer()

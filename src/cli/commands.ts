@@ -1810,9 +1810,39 @@ ACP-specific flags are automatically stripped.
   }
 }
 
-export async function cmdOnboard(): Promise<void> {
+export async function cmdOnboard(args: string[] = []): Promise<void> {
   const { ConfigManager } = await import('../core/config.js')
   const cm = new ConfigManager()
+
+  const subcommand = args[1]        // e.g. "slack" (args[0] is "onboard")
+  const flag = args[2]              // e.g. "--upgrade-scopes"
+
+  if (subcommand === 'slack') {
+    if (flag === '--upgrade-scopes') {
+      const { upgradeSlackScopes } = await import('../core/setup.js')
+      await upgradeSlackScopes(cm)
+      return
+    }
+    // Direct Slack setup
+    await cm.load().catch(() => {})
+    const existing = cm.get()?.channels?.slack
+    const { setupSlack } = await import('../core/setup.js')
+    const result = await setupSlack(1, 1, existing)
+    // Merge into config
+    const config = cm.get()
+    const channels = { ...config.channels, slack: result.slackConfig }
+    // Handle speech config merge
+    const speech = { ...config.speech }
+    if (result.speechConfig.stt) {
+      speech.stt = { provider: result.speechConfig.stt.provider, providers: { [result.speechConfig.stt.provider]: { apiKey: result.speechConfig.stt.apiKey } } }
+    }
+    if (result.speechConfig.tts) {
+      speech.tts = { provider: result.speechConfig.tts.provider, providers: { [result.speechConfig.tts.provider]: { voice: result.speechConfig.tts.voice } } }
+    }
+    await cm.writeNew({ ...config, channels, speech })
+    return
+  }
+
   const { runSetup } = await import('../core/setup.js')
   await runSetup(cm, { skipRunMode: true })
 }
