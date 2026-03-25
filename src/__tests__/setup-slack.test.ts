@@ -66,3 +66,27 @@ describe('validateSlackBotToken', () => {
     if (!result.ok) expect(result.error).toContain('Network error')
   })
 })
+
+describe('Slack notification channel lookup logic', () => {
+  it('finds existing private channel by name via paginated list', () => {
+    const pages = [
+      { channels: [{ id: 'C_OTHER', name: 'general' }], response_metadata: { next_cursor: 'cursor1' } },
+      { channels: [{ id: 'C_NOTIF', name: 'openacp-notifications' }], response_metadata: { next_cursor: '' } },
+    ]
+    let pageIdx = 0
+    const mockList = vi.fn().mockImplementation(() => Promise.resolve(pages[pageIdx++]))
+
+    async function findChannel(name: string) {
+      let cursor = ''
+      while (true) {
+        const res = await mockList({ types: 'private_channel', cursor, limit: 200 }) as typeof pages[0]
+        const found = res.channels.find((c: { id: string; name: string }) => c.name === name)
+        if (found) return found.id
+        cursor = res.response_metadata?.next_cursor ?? ''
+        if (!cursor) return null
+      }
+    }
+
+    return expect(findChannel('openacp-notifications')).resolves.toBe('C_NOTIF')
+  })
+})

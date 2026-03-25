@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import * as path from "node:path";
 import * as clack from "@clack/prompts";
-import type { Config, ConfigManager } from "./config.js";
+import type { Config, ConfigManager, SlackChannelConfig } from "./config.js";
 import { expandHome } from "./config.js";
 import { commandExists } from "./agent-dependencies.js";
 import type { DiscordChannelConfig } from "../adapters/discord/types.js";
@@ -585,6 +587,262 @@ export async function validateSlackBotToken(
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
+}
+
+// --- Slack setup wizard ---
+
+const SLACK_MANIFEST_VERSION_FILE = expandHome("~/.openacp/slack-manifest-version");
+
+function readSlackManifestVersion(): number {
+  try {
+    const content = fs.readFileSync(SLACK_MANIFEST_VERSION_FILE, "utf8").trim();
+    return parseInt(content, 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeSlackManifestVersion(version: number): void {
+  fs.mkdirSync(path.dirname(SLACK_MANIFEST_VERSION_FILE), { recursive: true });
+  fs.writeFileSync(SLACK_MANIFEST_VERSION_FILE, String(version), "utf8");
+}
+
+export async function setupSlack(
+  stepNum = 1,
+  totalSteps = 1,
+  existingConfig?: Partial<SlackChannelConfig>,
+): Promise<{ slackConfig: SlackChannelConfig; speechConfig: { stt?: { provider: string; apiKey: string }; tts?: { provider: string; voice?: string } } }> {
+  console.log(step(stepNum, totalSteps, "Slack"));
+
+  // Guard: already configured
+  if (existingConfig?.botToken) {
+    const rerun = guardCancel(
+      await clack.confirm({
+        message: "Slack is already configured. Re-run setup? This will overwrite existing credentials.",
+        initialValue: false,
+      }),
+    );
+    if (!rerun) {
+      clack.cancel("Keeping existing Slack config.");
+      process.exit(0);
+    }
+  }
+
+  // Step 1: App Manifest
+  const { manifest } = generateSlackManifest();
+  const manifestJson = JSON.stringify(manifest, null, 2);
+
+  console.log("");
+  console.log(`  ${c.bold}Step 1: Create your Slack app${c.reset}`);
+  console.log("");
+  console.log(dim("  1. Open https://api.slack.com/apps"));
+  console.log(dim("  2. Click 'Create New App' → 'From a manifest'"));
+  console.log(dim("  3. Select your workspace"));
+  console.log(dim("  4. Paste this manifest:"));
+  console.log("");
+  console.log(`  ┌${"─".repeat(60)}┐`);
+  manifestJson.split("\n").forEach((line) => {
+    console.log(`  │ ${line.padEnd(58)} │`);
+  });
+  console.log(`  └${"─".repeat(60)}┘`);
+  console.log("");
+  console.log(dim("  5. Click Next → Create → Install to Workspace → Allow"));
+  console.log(dim("  6. After install:"));
+  console.log(dim("     • Bot Token:      OAuth & Permissions → Bot User OAuth Token"));
+  console.log(dim("     • App Token:      Basic Information → App-Level Tokens → Generate Token"));
+  console.log(dim("                       (name it anything, select 'connections:write' scope)"));
+  console.log(dim("     • Signing Secret: Basic Information → App Credentials → Signing Secret"));
+  console.log("");
+
+  guardCancel(await clack.text({ message: "Press Enter when done..." }));
+
+  // Step 2: Credentials
+  let botToken = "";
+  while (true) {
+    botToken = (guardCancel(
+      await clack.text({
+        message: "Bot Token (xoxb-...):",
+        validate: (val) => (val ?? "").toString().trim().length > 0 ? undefined : "Bot Token cannot be empty",
+      }),
+    ) as string).trim();
+
+    const spinner = clack.spinner();
+    spinner.start("Validating Bot Token...");
+    const result = await validateSlackBotToken(botToken);
+    spinner.stop(result.ok ? ok(`Authenticated as @${result.botUsername}`) : fail(result.error));
+
+    if (result.ok) break;
+
+    const action = guardCancel(
+      await clack.select({
+        message: "What to do?",
+        options: [
+          { label: "Re-enter token", value: "retry" },
+          { label: "Use as-is (skip validation)", value: "skip" },
+        ],
+      }),
+    );
+    if (action === "skip") break;
+  }
+
+  const appToken = (guardCancel(
+    await clack.text({
+      message: "App Token (xapp-1-...):",
+      validate: (val) => {
+        const v = (val ?? "").toString().trim();
+        if (!v) return "App Token cannot be empty";
+        if (!v.startsWith("xapp-1-")) return "App Token must start with xapp-1-";
+        return undefined;
+      },
+    }),
+  ) as string).trim();
+
+  const signingSecret = (guardCancel(
+    await clack.text({
+      message: "Signing Secret:",
+      validate: (val) => (val ?? "").toString().trim().length > 0 ? undefined : "Signing Secret cannot be empty",
+    }),
+  ) as string).trim();
+
+  console.log(warn("App Token and Signing Secret cannot be validated until the adapter starts."));
+
+  // Step 3: Optional config
+  const allowedRaw = (guardCancel(
+    await clack.text({
+      message: "Allowed Slack User IDs (comma-separated, or Enter to allow all):",
+      placeholder: "U0123456789, U9876543210",
+    }),
+  ) as string).trim();
+  const allowedUserIds = allowedRaw
+    ? allowedRaw.split(",").map((uid) => uid.trim()).filter(Boolean)
+    : [];
+
+  const channelPrefix = (guardCancel(
+    await clack.text({
+      message: "Channel prefix:",
+      initialValue: "openacp",
+    }),
+  ) as string).trim() || "openacp";
+
+  // Step 3.5: Voice setup
+  let speechConfig: { stt?: { provider: string; apiKey: string }; tts?: { provider: string; voice?: string } } = {};
+
+  const enableVoice = guardCancel(
+    await clack.confirm({
+      message: "Enable voice support? (Speech-to-Text / Text-to-Speech)",
+      initialValue: false,
+    }),
+  );
+
+  if (enableVoice) {
+    const groqKey = (guardCancel(
+      await clack.text({
+        message: "Groq API key for Speech-to-Text (get free key at console.groq.com, or Enter to skip):",
+        placeholder: "gsk_...",
+      }),
+    ) as string).trim();
+
+    if (groqKey) {
+      speechConfig.stt = { provider: "groq", apiKey: groqKey };
+      console.log(ok("STT configured — files:read is already in the app manifest, no reinstall needed"));
+    }
+
+    const enableTts = guardCancel(
+      await clack.confirm({
+        message: "Enable Text-to-Speech? (Edge TTS, free, no API key needed)",
+        initialValue: true,
+      }),
+    );
+
+    if (enableTts) {
+      console.log(dim("  Popular voices: en-US-GuyNeural, vi-VN-HoaiMyNeural, ja-JP-NanamiNeural"));
+      const voice = (guardCancel(
+        await clack.text({
+          message: "Voice (Enter for default en-US-AriaNeural):",
+          placeholder: "en-US-AriaNeural",
+        }),
+      ) as string).trim() || "en-US-AriaNeural";
+
+      speechConfig.tts = { provider: "edge-tts", voice };
+      console.log(ok("TTS configured — files:write is already in the app manifest, no reinstall needed"));
+    }
+  }
+
+  // Step 4: Auto-create notification channel
+  let notificationChannelId: string | undefined;
+
+  const s4 = clack.spinner();
+  s4.start("Creating #openacp-notifications channel...");
+
+  try {
+    const { WebClient } = await import("@slack/web-api");
+    const web = new WebClient(botToken);
+
+    try {
+      const createRes = await web.conversations.create({
+        name: "openacp-notifications",
+        is_private: true,
+      });
+      notificationChannelId = (createRes.channel as { id?: string })?.id;
+      s4.stop(ok(`Created #openacp-notifications (${notificationChannelId})`));
+      console.log(dim("  ➜ Join the channel: open Slack → search for #openacp-notifications → Join"));
+    } catch (createErr: unknown) {
+      const errCode = (createErr as { data?: { error?: string } })?.data?.error;
+      if (errCode === "name_taken") {
+        s4.message("Channel name taken — looking up existing channel...");
+        let cursor = "";
+        let found = false;
+        while (true) {
+          const listRes = await web.conversations.list({
+            types: "private_channel",
+            cursor,
+            limit: 200,
+          });
+          const channels = (listRes.channels ?? []) as Array<{ id?: string; name?: string }>;
+          const match = channels.find((ch) => ch.name === "openacp-notifications");
+          if (match?.id) {
+            notificationChannelId = match.id;
+            s4.stop(ok(`Using existing #openacp-notifications (${notificationChannelId})`));
+            found = true;
+            break;
+          }
+          cursor = (listRes.response_metadata as { next_cursor?: string })?.next_cursor ?? "";
+          if (!cursor) break;
+        }
+        if (!found) {
+          s4.stop(warn("Could not find #openacp-notifications"));
+          console.log(dim("  Set notificationChannelId manually in config after joining the channel"));
+        }
+      } else {
+        s4.stop(warn("Could not create notification channel — skipping"));
+        console.log(dim("  Set notificationChannelId manually in config after joining the channel"));
+      }
+    }
+  } catch {
+    s4.stop(warn("Skipped notification channel creation"));
+  }
+
+  // Write manifest version marker
+  writeSlackManifestVersion(generateSlackManifest().version);
+
+  // Build result config
+  const slackConfig: SlackChannelConfig = {
+    enabled: true,
+    botToken,
+    appToken,
+    signingSecret,
+    allowedUserIds,
+    channelPrefix,
+    autoCreateSession: true,
+    ...(notificationChannelId ? { notificationChannelId } : {}),
+  };
+
+  console.log("");
+  console.log(ok("Slack adapter configured"));
+  console.log(dim("  Note: autoCreateSession is enabled by default."));
+  console.log(dim("  To disable: openacp config set channels.slack.autoCreateSession false"));
+
+  return { slackConfig, speechConfig };
 }
 
 export async function setupAgents(): Promise<{
