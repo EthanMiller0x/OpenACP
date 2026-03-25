@@ -846,6 +846,82 @@ export async function setupSlack(
   return { slackConfig, speechConfig };
 }
 
+export async function upgradeSlackScopes(configManager: ConfigManager): Promise<void> {
+  await configManager.load().catch(() => {});
+  const config = configManager.get();
+  const slackConfig = (config.channels as Record<string, unknown>)?.slack as SlackChannelConfig | undefined;
+
+  if (!slackConfig?.botToken) {
+    console.log(fail("No Slack config found. Run `openacp onboard slack` first."));
+    process.exit(1);
+  }
+
+  const currentVersion = readSlackManifestVersion();
+  const { version: latestVersion, manifest } = generateSlackManifest();
+
+  console.log("");
+  console.log(`  Current manifest: ${c.bold}v${currentVersion}${c.reset}`);
+  console.log(`  Latest manifest:  ${c.bold}v${latestVersion}${c.reset}`);
+  console.log("");
+
+  if (currentVersion >= latestVersion) {
+    console.log(ok("Your Slack app scopes are up to date."));
+    return;
+  }
+
+  console.log(`  ${c.bold}New scopes in v${latestVersion}:${c.reset}`);
+  // Future: diff old vs new scopes here
+  console.log(dim("  (scope changes will be listed here in future versions)"));
+  console.log("");
+
+  const manifestJson = JSON.stringify(manifest, null, 2);
+  console.log(`  ┌${"─".repeat(60)}┐`);
+  manifestJson.split("\n").forEach((line) => {
+    console.log(`  │ ${line.padEnd(58)} │`);
+  });
+  console.log(`  └${"─".repeat(60)}┘`);
+  console.log("");
+  console.log(dim("  1. Open api.slack.com/apps → Your App → App Manifest"));
+  console.log(dim("  2. Replace entire manifest with the one above"));
+  console.log(dim("  3. Save Changes → Reinstall App → Install to Workspace"));
+  console.log(dim("  4. Copy the new Bot Token from OAuth & Permissions"));
+  console.log("");
+
+  guardCancel(await clack.text({ message: "Press Enter when done..." }));
+
+  let newToken = "";
+  while (true) {
+    newToken = (guardCancel(
+      await clack.text({
+        message: "New Bot Token (xoxb-...):",
+        validate: (val) => (val ?? "").toString().trim().length > 0 ? undefined : "Token cannot be empty",
+      }),
+    ) as string).trim();
+
+    const s = clack.spinner();
+    s.start("Validating new Bot Token...");
+    const result = await validateSlackBotToken(newToken);
+    s.stop(result.ok ? ok(`Authenticated as @${result.botUsername}`) : fail(result.error));
+
+    if (result.ok) break;
+
+    const action = guardCancel(
+      await clack.select({
+        message: "What to do?",
+        options: [
+          { label: "Re-enter token", value: "retry" },
+          { label: "Use as-is (skip validation)", value: "skip" },
+        ],
+      }),
+    );
+    if (action === "skip") break;
+  }
+
+  await configManager.save({ channels: { slack: { ...slackConfig, botToken: newToken } } });
+  writeSlackManifestVersion(latestVersion);
+  console.log(ok("Scope upgrade complete"));
+}
+
 export async function setupAgents(): Promise<{
   defaultAgent: string;
 }> {

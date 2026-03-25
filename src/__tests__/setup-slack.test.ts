@@ -67,6 +67,13 @@ describe('validateSlackBotToken', () => {
   })
 })
 
+describe('manifest version tracking', () => {
+  it('generateSlackManifest returns version 1', () => {
+    const { version } = generateSlackManifest()
+    expect(version).toBe(1)
+  })
+})
+
 describe('Slack notification channel lookup logic', () => {
   it('finds existing private channel by name via paginated list', () => {
     const pages = [
