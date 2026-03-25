@@ -828,6 +828,7 @@ export async function setupSlack(
   // Build result config
   const slackConfig: SlackChannelConfig = {
     enabled: true,
+    adapter: "slack",
     botToken,
     appToken,
     signingSecret,
