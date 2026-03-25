@@ -6,12 +6,13 @@ describe('generateSlackManifest', () => {
     const manifest = generateSlackManifest()
     expect(manifest.version).toBe(1)
     const scopes = manifest.manifest.oauth_config.scopes.bot
-    expect(scopes).toContain('channels:manage')
-    expect(scopes).toContain('channels:history')
-    expect(scopes).toContain('groups:history')
-    expect(scopes).toContain('chat:write')
-    expect(scopes).toContain('files:read')
-    expect(scopes).toContain('files:write')
+    const required = [
+      'channels:manage', 'channels:history', 'channels:join', 'channels:read',
+      'chat:write', 'chat:write.public',
+      'groups:write', 'groups:history', 'groups:read',
+      'files:read', 'files:write',
+    ]
+    for (const s of required) expect(scopes).toContain(s)
   })
 
   it('includes /openacp-archive slash command', () => {
