@@ -1147,13 +1147,15 @@ export async function runSetup(configManager: ConfigManager, opts?: { skipRunMod
         options: [
           { label: 'Telegram', value: 'telegram' },
           { label: 'Discord', value: 'discord' },
-          { label: 'Both', value: 'both' },
+          { label: 'Slack', value: 'slack' },
+          { label: 'Multiple (Telegram + Discord)', value: 'both' },
         ],
       }),
     );
 
     let telegram: Config["channels"][string] | undefined;
     let discord: DiscordChannelConfig | undefined;
+    let slackResult: { slackConfig: SlackChannelConfig; speechConfig: { stt?: { provider: string; apiKey: string }; tts?: { provider: string; voice?: string } } } | undefined;
 
     // Calculate total steps dynamically: channel(s) + workspace + run mode
     const channelSteps = channelChoice === 'both' ? 2 : 1;
@@ -1169,6 +1171,10 @@ export async function runSetup(configManager: ConfigManager, opts?: { skipRunMod
     if (channelChoice === 'discord' || channelChoice === 'both') {
       currentStep++;
       discord = await setupDiscord();
+    }
+    if (channelChoice === 'slack') {
+      currentStep++;
+      slackResult = await setupSlack(currentStep, totalSteps);
     }
 
     const { defaultAgent } = await setupAgents();
@@ -1222,6 +1228,7 @@ export async function runSetup(configManager: ConfigManager, opts?: { skipRunMod
     if (telegram) channels.telegram = telegram;
     // DiscordChannelConfig is structurally compatible with the base channel schema
     if (discord) channels.discord = discord as Config["channels"][string];
+    if (slackResult) channels.slack = slackResult.slackConfig;
 
     const config: Config = {
       channels,
@@ -1260,8 +1267,18 @@ export async function runSetup(configManager: ConfigManager, opts?: { skipRunMod
       },
       integrations: {},
       speech: {
-        stt: { provider: null, providers: {} },
-        tts: { provider: null, providers: {} },
+        stt: {
+          provider: slackResult?.speechConfig?.stt?.provider ?? null,
+          providers: slackResult?.speechConfig?.stt
+            ? { [slackResult.speechConfig.stt.provider]: { apiKey: slackResult.speechConfig.stt.apiKey } }
+            : {},
+        },
+        tts: {
+          provider: slackResult?.speechConfig?.tts?.provider ?? null,
+          providers: slackResult?.speechConfig?.tts
+            ? { [slackResult.speechConfig.tts.provider]: { voice: slackResult.speechConfig.tts.voice } }
+            : {},
+        },
       },
     };
 
