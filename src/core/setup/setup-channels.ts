@@ -6,6 +6,24 @@ import { guardCancel, ok, c } from "./helpers.js";
 import { setupTelegram } from "./setup-telegram.js";
 import { setupDiscord } from "./setup-discord.js";
 import type { DiscordChannelConfig } from "../../adapters/discord/types.js";
+import { listPlugins, loadAdapterFactory, type AdapterFactory } from "../plugin-manager.js";
+
+interface PluginChannelInfo {
+  packageName: string;
+  factory: AdapterFactory;
+}
+
+async function discoverPluginChannels(): Promise<PluginChannelInfo[]> {
+  const plugins = listPlugins();
+  const result: PluginChannelInfo[] = [];
+  for (const packageName of Object.keys(plugins)) {
+    const factory = await loadAdapterFactory(packageName);
+    if (factory && typeof factory.setup === "function") {
+      result.push({ packageName, factory });
+    }
+  }
+  return result;
+}
 
 export function getChannelStatuses(config: Config): ChannelStatus[] {
   const statuses: ChannelStatus[] = [];
@@ -62,16 +80,32 @@ export async function configureChannels(config: Config): Promise<{ config: Confi
   const next = structuredClone(config);
   let changed = false;
 
+  // Discover plugin channels with setup hooks
+  const pluginChannels = await discoverPluginChannels();
+
   noteChannelStatus(next);
 
   while (true) {
     const statuses = getChannelStatuses(next);
-    const options = statuses.map((s) => {
+    const builtinOptions = statuses.map((s) => {
       const status = s.enabled ? "enabled" : s.configured ? "disabled" : "not configured";
       return {
-        value: s.id,
+        value: s.id as string,
         label: `${s.label} (${CHANNEL_META[s.id].method})`,
         hint: status + (s.hint ? ` · ${s.hint}` : ""),
+      };
+    });
+
+    // Add plugin channel options
+    const pluginOptions = pluginChannels.map((p) => {
+      const ch = next.channels[p.factory.name] as Record<string, unknown> | undefined;
+      const enabled = ch?.enabled === true;
+      const configured = !!ch && Object.keys(ch).length > 1;
+      const status = enabled ? "enabled" : configured ? "disabled" : "not configured";
+      return {
+        value: p.factory.name,
+        label: `${p.factory.displayName ?? p.factory.name} (${p.factory.method ?? "Plugin"})`,
+        hint: status,
       };
     });
 
@@ -79,7 +113,8 @@ export async function configureChannels(config: Config): Promise<{ config: Confi
       await clack.select({
         message: "Select a channel",
         options: [
-          ...options,
+          ...builtinOptions,
+          ...pluginOptions,
           { value: "__done__" as const, label: "Finished" },
         ],
       }),
@@ -87,40 +122,53 @@ export async function configureChannels(config: Config): Promise<{ config: Confi
 
     if (choice === "__done__") break;
 
-    const channelId = choice as ChannelId;
-    const meta = CHANNEL_META[channelId];
+    const channelId = choice as string;
+
+    // Check if this is a plugin channel
+    const plugin = pluginChannels.find((p) => p.factory.name === channelId);
+
     const existing = next.channels[channelId] as Record<string, unknown> | undefined;
     const isConfigured = !!existing && Object.keys(existing).length > 1;
 
     if (isConfigured) {
-      const action = await promptConfiguredAction(meta.label);
+      const label = plugin ? (plugin.factory.displayName ?? plugin.factory.name) : CHANNEL_META[channelId as ChannelId]?.label ?? channelId;
+      const action = await promptConfiguredAction(label);
 
       if (action === "skip") continue;
       if (action === "disable") {
         (next.channels[channelId] as Record<string, unknown>).enabled = false;
         changed = true;
-        console.log(ok(`${meta.label} disabled`));
+        console.log(ok(`${label} disabled`));
         continue;
       }
       if (action === "delete") {
         const confirmed = guardCancel(
           await clack.confirm({
-            message: `Delete ${meta.label} config? This cannot be undone.`,
+            message: `Delete ${label} config? This cannot be undone.`,
             initialValue: false,
           }),
         );
         if (confirmed) {
           delete next.channels[channelId];
           changed = true;
-          console.log(ok(`${meta.label} config deleted`));
+          console.log(ok(`${label} config deleted`));
         }
         continue;
       }
       // action === "modify" — fall through to setup
     }
 
-    // Run channel setup (fresh or modify)
-    if (channelId === "telegram") {
+    // Run channel setup
+    if (plugin) {
+      // Plugin channel — call factory.setup()
+      const result = await plugin.factory.setup!(isConfigured ? existing : undefined);
+      (next.channels as Record<string, unknown>)[channelId] = {
+        enabled: true,
+        adapter: plugin.packageName,
+        ...result,
+      };
+      changed = true;
+    } else if (channelId === "telegram") {
       const result = await setupTelegram({
         existing: isConfigured ? (existing as Config["channels"][string]) : undefined,
       });
