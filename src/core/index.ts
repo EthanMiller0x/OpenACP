@@ -104,7 +104,7 @@ export { EntireProvider } from "../plugins/context/entire/entire-provider.js";
 export { MessagingAdapter, StreamAdapter } from './adapter-primitives/index.js'
 export type { MessagingAdapterConfig } from './adapter-primitives/index.js'
 export { BaseRenderer } from './adapter-primitives/index.js'
-export type { IRenderer, RenderedMessage } from './adapter-primitives/index.js'
+export type { IRenderer, RenderedMessage, RenderedPermission } from './adapter-primitives/index.js'
 export { SendQueue, DraftManager, ToolCallTracker, ActivityTracker } from './adapter-primitives/index.js'
 export type { DisplayVerbosity, ToolCallMeta, ToolUpdateMeta, ViewerLinks } from './adapter-primitives/index.js'
 export { STATUS_ICONS, KIND_ICONS } from './adapter-primitives/index.js'

@@ -28,7 +28,7 @@ export type {
 export type {
   IChannelAdapter, AdapterCapabilities, OutgoingMessage, PermissionRequest,
   PermissionOption, NotificationMessage, AgentCommand,
-  MessagingAdapterConfig, IRenderer, RenderedMessage,
+  MessagingAdapterConfig, IRenderer, RenderedMessage, RenderedPermission,
 } from '@openacp/cli'
 
 // --- Adapter base classes (runtime) ---
