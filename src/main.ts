@@ -100,11 +100,11 @@ export async function startServer() {
     if (channelName === 'telegram') {
       core.registerAdapter('telegram', new TelegramAdapter(core, channelConfig as TelegramChannelConfig))
       log.info({ adapter: 'telegram' }, 'Adapter registered')
-    } else if (channelName === 'slack') {
-      const { SlackAdapter } = await import('./adapters/slack/adapter.js')
-      const slackConfig = channelConfig as import('./adapters/slack/types.js').SlackChannelConfig
-      core.registerAdapter('slack', new SlackAdapter(core, slackConfig))
-      log.info({ adapter: 'slack' }, 'Adapter registered')
+    } else if (channelName === 'slack' && !channelConfig.adapter) {
+      log.error(
+        { adapter: 'slack' },
+        'Slack adapter has been moved to a plugin. Install it with: openacp plugin install @openacp/adapter-slack — Then add "adapter": "@openacp/adapter-slack" to your slack channel config.'
+      )
     } else if (channelName === 'discord') {
       const { DiscordAdapter } = await import('./adapters/discord/index.js')
       const discordConfig = channelConfig as import('./adapters/discord/types.js').DiscordChannelConfig

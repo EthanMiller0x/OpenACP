@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-describe("Config env var overrides — Slack", () => {
+describe("Config env var overrides — Slack (removed from core)", () => {
   const tmpDir = path.join(os.tmpdir(), `openacp-test-${Date.now()}`);
   const configPath = path.join(tmpDir, "config.json");
 
@@ -16,10 +16,10 @@ describe("Config env var overrides — Slack", () => {
     try { fs.rmSync(tmpDir, { recursive: true }); } catch { /* ignore */ }
   });
 
-  it("OPENACP_SLACK_BOT_TOKEN overrides channels.slack.botToken", async () => {
+  it("OPENACP_SLACK_BOT_TOKEN is no longer applied by core (Slack moved to plugin)", async () => {
     fs.mkdirSync(tmpDir, { recursive: true });
     fs.writeFileSync(configPath, JSON.stringify({
-      channels: { slack: { enabled: true, botToken: "old-token" } },
+      channels: { slack: { enabled: true, adapter: "@openacp/adapter-slack", botToken: "old-token" } },
       agents: {},
       defaultAgent: "claude",
     }));
@@ -30,13 +30,14 @@ describe("Config env var overrides — Slack", () => {
     const mgr = new ConfigManager();
     await mgr.load();
     const config = mgr.get();
-    expect((config.channels as any).slack.botToken).toBe("xoxb-env-override");
+    // Core no longer overrides Slack config — value stays as set in config file
+    expect((config.channels as any).slack.botToken).toBe("old-token");
   });
 
-  it("OPENACP_SLACK_APP_TOKEN overrides channels.slack.appToken", async () => {
+  it("OPENACP_SLACK_APP_TOKEN is no longer applied by core (Slack moved to plugin)", async () => {
     fs.mkdirSync(tmpDir, { recursive: true });
     fs.writeFileSync(configPath, JSON.stringify({
-      channels: { slack: { enabled: true, appToken: "old-app-token" } },
+      channels: { slack: { enabled: true, adapter: "@openacp/adapter-slack", appToken: "old-app-token" } },
       agents: {},
       defaultAgent: "claude",
     }));
@@ -47,13 +48,14 @@ describe("Config env var overrides — Slack", () => {
     const mgr = new ConfigManager();
     await mgr.load();
     const config = mgr.get();
-    expect((config.channels as any).slack.appToken).toBe("xapp-1-env-override");
+    // Core no longer overrides Slack config — value stays as set in config file
+    expect((config.channels as any).slack.appToken).toBe("old-app-token");
   });
 
-  it("OPENACP_SLACK_SIGNING_SECRET overrides channels.slack.signingSecret", async () => {
+  it("OPENACP_SLACK_SIGNING_SECRET is no longer applied by core (Slack moved to plugin)", async () => {
     fs.mkdirSync(tmpDir, { recursive: true });
     fs.writeFileSync(configPath, JSON.stringify({
-      channels: { slack: { enabled: true, signingSecret: "old-secret" } },
+      channels: { slack: { enabled: true, adapter: "@openacp/adapter-slack", signingSecret: "old-secret" } },
       agents: {},
       defaultAgent: "claude",
     }));
@@ -64,23 +66,24 @@ describe("Config env var overrides — Slack", () => {
     const mgr = new ConfigManager();
     await mgr.load();
     const config = mgr.get();
-    expect((config.channels as any).slack.signingSecret).toBe("new-secret-from-env");
+    // Core no longer overrides Slack config — value stays as set in config file
+    expect((config.channels as any).slack.signingSecret).toBe("old-secret");
   });
 
-  it("creates channels.slack path if it doesn't exist in config", async () => {
+  it("slack channel with plugin adapter passes through BaseChannelSchema", async () => {
     fs.mkdirSync(tmpDir, { recursive: true });
     fs.writeFileSync(configPath, JSON.stringify({
-      channels: {},
+      channels: { slack: { enabled: true, adapter: "@openacp/adapter-slack" } },
       agents: {},
       defaultAgent: "claude",
     }));
 
-    process.env.OPENACP_SLACK_BOT_TOKEN = "xoxb-new";
     process.env.OPENACP_CONFIG_PATH = configPath;
 
     const mgr = new ConfigManager();
     await mgr.load();
     const config = mgr.get();
-    expect((config.channels as any).slack.botToken).toBe("xoxb-new");
+    expect((config.channels as any).slack.enabled).toBe(true);
+    expect((config.channels as any).slack.adapter).toBe("@openacp/adapter-slack");
   });
 });
