@@ -10,7 +10,10 @@ import type { OpenACPCore } from './core.js'
 
 export interface AdapterFactory {
   name: string
+  displayName: string
+  method?: string
   createAdapter(core: OpenACPCore, config: ChannelConfig): ChannelAdapter
+  setup?(existing?: Record<string, unknown>): Promise<Record<string, unknown>>
 }
 
 function ensurePluginsDir(): void {
